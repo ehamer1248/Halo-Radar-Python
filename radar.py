@@ -1,105 +1,314 @@
-# Conversion of the provided C++ code into Python, focusing on network communication and interface handling.
 import socket
-import netifaces
-import ipaddress
-import threading
 import struct
-from typing import List, NamedTuple, Dict, Any
+import threading
+import time
+import sys
+from radar_structures import *
 
-# Define a namedtuple for storing address set information
-class AddressSet(NamedTuple):
-    label: str
-    data: Any
-    send: Any
-    report: Any
-    interface: str
+class AddressSet:
+    def __init__(self):
+        self.label = ""
+        self.data = None
+        self.send = None
+        self.report = None
+        self.interface = None
 
-# Check if a network interface is valid based on certain conditions
-def valid_interface(interface) -> bool:
-    addresses = netifaces.ifaddresses(interface)
-    return (netifaces.AF_INET in addresses and 
-            'addr' in addresses[netifaces.AF_INET][0] and 
-            not addresses[netifaces.AF_INET][0]['addr'].startswith('127.'))
+    def __str__(self):
+        return f"{self.label}: data: {ip_address_to_string(self.data.address)}:{self.data.port}, report: {ip_address_to_string(self.report.address)}:{self.report.port}, send: {ip_address_to_string(self.send.address)}:{self.send.port}, interface: {ip_address_to_string(self.interface)}"
 
-# Get local IP addresses of valid network interfaces
-def get_local_addresses() -> List[str]:
-    addresses = []
-    for interface in netifaces.interfaces():
-        if valid_interface(interface):
-            ifaddr = netifaces.ifaddresses(interface)[netifaces.AF_INET][0]['addr']
-            addresses.append(ifaddr)
-    return addresses
-
-# Convert a uint32 IP address to a string
-def ip_address_to_string(ip_address) -> str:
-    return str(ipaddress.IPv4Address(ip_address))
-
-# Convert an IP address from string to uint32
-def ip_address_from_string(ip_str) -> int:
-    return int(ipaddress.IPv4Address(ip_str))
-
-# Radar scanning function
-def scan(addresses: List[str]) -> List[AddressSet]:
-    results = []
-    for ip_str in addresses:
-        print(f"Local interface: {ip_str}")
-        # Socket setup for listening and sending, similar to the provided C++ code
-
-    return results
-
-# Further conversion is needed for complete functionality, including handling of RadarReport structures, threading, etc.
-
-# Placeholder function to represent the processing of radar data
-def process_radar_data(data):
-    pass  # Placeholder for radar data processing logic
-
-# Function to create and configure a listening socket
-def create_listener_socket(interface, mcast_address, port) -> socket.socket:
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
-    # Set timeout
-    s.settimeout(1)
-
-    # Bind to the interface
-    s.bind(('', port))
-
-    # Join multicast group
-    mreq = struct.pack("4sl", socket.inet_aton(mcast_address), socket.INADDR_ANY)
-    s.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
-
-    return s
-
-# Class representing radar functionality
 class Radar:
-    def __init__(self, addresses: AddressSet):
-        self.addresses = addresses
-        self.exit_flag = False
-        self.send_socket = self.create_send_socket()
+    def __init__(self, addresses):
+        self.m_addresses = addresses
+        self.m_exit_flag = False
+        self.m_send_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.m_send_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.m_send_address = (self.m_addresses.interface, 0)
+        self.m_send_socket.bind(self.m_send_address)
+        self.m_send_address = (socket.inet_ntoa(struct.pack("!I", self.m_addresses.send.address)), self.m_addresses.send.port)
+        self.send_heartbeat()
 
-        # Placeholder for threading
-        self.data_thread = threading.Thread(target=self.data_thread_func)
-        self.report_thread = threading.Thread(target=self.report_thread_func)
-
-    # Function to create a send socket
-    def create_send_socket(self) -> socket.socket:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        s.bind((ip_address_to_string(self.addresses.interface), 0))
-        return s
-
-    # Placeholder function for the data thread
-    def data_thread_func(self):
-        pass  # Placeholder for data thread functionality
-
-    # Placeholder function for the report thread
-    def report_thread_func(self):
-        pass  # Placeholder for report thread functionality
-
-    # Function to start data and report threads
     def start_threads(self):
-        self.data_thread.start()
-        self.report_thread.start()
+        self.m_data_thread = threading.Thread(target=self.data_thread)
+        self.m_report_thread = threading.Thread(target=self.report_thread)
+        self.m_data_thread.start()
+        self.m_report_thread.start()
 
-# Further implementation is needed for complete radar functionality, including handling of data and report threads, command sending, etc.
+    def data_thread(self):
+        # Implement data thread functionality
+        pass
 
+    def report_thread(self):
+        # Implement report thread functionality
+        pass
+
+
+    def create_listener_socket(self, interface, mcast_address, port):
+        # Implement listener socket creation
+        pass
+
+    def process_data(self, scanlines):
+        # Implement data processing logic
+        pass
+
+    def send_command_raw(self, data, size):
+        self.m_send_socket.sendto(data, self.m_send_address)
+
+    def send_heartbeat(self):
+        data1 = bytes([0xa0, 0xc1])
+        self.send_command_raw(data1, len(data1))
+
+        data2 = bytes([0x03, 0xc2])
+        self.send_command_raw(data2, len(data2))
+
+        data3 = bytes([0x04, 0xc2])
+        self.send_command_raw(data3, len(data3))
+
+        data4 = bytes([0x05, 0xc2])
+        self.send_command_raw(data4, len(data4))
+
+        self.m_last_heartbeat = time.monotonic()
+
+    def check_heartbeat(self):
+        elapsed = time.monotonic() - self.m_last_heartbeat
+        if elapsed > 1.0:
+            self.send_heartbeat()
+            return True
+        return False
+
+    def send_command_key_value(self, key, value):
+        if key == "status":
+            if value == "transmit":
+                data1 = bytes([0x00, 0xc1, 0x01])
+                self.send_command_raw(data1, len(data1))
+                data2 = bytes([0x01, 0xc1, 0x01])
+                self.send_command_raw(data2, len(data2))
+            elif value == "standby":
+                data1 = bytes([0x00, 0xc1, 0x01])
+                self.send_command_raw(data1, len(data1))
+                data2 = bytes([0x01, 0xc1, 0x00])
+                self.send_command_raw(data2, len(data2))
+
+        if key == "range":
+            cmd = RangeCmd()
+            cmd.range = float(value) * 10
+            self.send_command_raw(cmd)
+
+        if key == "bearing_alignment":
+            cmd = BearingAlignmentCmd()
+            cmd.bearing_alignment = float(value) * 10
+            self.send_command_raw(cmd)
+
+        if key == "gain":
+            cmd = GainCmd()
+            if value == "auto":
+                cmd.gain_auto = 1
+            else:
+                cmd.gain = float(value) * 255 / 100
+            self.send_command_raw(cmd)
+
+        if key == "sea_clutter":
+            cmd = SeaClutterCmd()
+            if value == "auto":
+                cmd.sea_clutter_auto = 1
+            else:
+                cmd.sea_clutter = float(value) * 255 / 100
+            self.send_command_raw(cmd)
+
+        if key == "rain_clutter":
+            cmd = RainClutterCmd()
+            cmd.rain_clutter = float(value) * 255 / 100
+            self.send_command_raw(cmd)
+
+        if key == "sidelobe_suppression":
+            cmd = SidelobeSuppressionCmd()
+            if value == "auto":
+                cmd.sls_auto = 1
+            else:
+                cmd.sidelobe_suppression = float(value) * 255 / 100
+            self.send_command_raw(cmd)
+
+        lmh_map = {
+            "off": 0,
+            "low": 1,
+            "medium": 2,
+            "high": 3
+        }
+
+        if key == "interference_rejection":
+            cmd = EnumCmd(0xc108, lmh_map[value])
+            self.send_command_raw(cmd)
+
+        if key == "sea_state":
+            cmd = EnumCmd(0xc10b, 0)
+            if value == "moderate":
+                cmd.value = 1
+            if value == "rough":
+                cmd.value = 2
+            self.send_command_raw(cmd)
+
+        if key == "scan_speed":
+            cmd = EnumCmd(0xc10f, 0)
+            if value == "medium":
+                cmd.value = 1
+            if value == "high":
+                cmd.value = 3
+            self.send_command_raw(cmd)
+
+        if key == "mode":
+            cmd = EnumCmd(0xc110, 0)
+            if value == "harbor":
+                cmd.value = 1
+            if value == "offshore":
+                cmd.value = 2
+            if value == "weather":
+                cmd.value = 4
+            if value == "bird":
+                cmd.value = 5
+            self.send_command_raw(cmd)
+
+        if key == "auto_sea_clutter_nudge":
+            cmd = AutoSeaClutterNudgeCmd(float(value))
+            self.send_command_raw(cmd)
+
+        if key == "target_expansion":
+            cmd = EnumCmd(0xc112, lmh_map[value])
+            self.send_command_raw(cmd)
+
+        if key == "noise_rejection":
+            cmd = EnumCmd(0xc121, lmh_map[value])
+            self.send_command_raw(cmd)
+
+        if key == "target_separation":
+            cmd = EnumCmd(0xc122, lmh_map[value])
+            self.send_command_raw(cmd)
+
+        if key == "doppler_mode":
+            cmd = EnumCmd(0xc123, 0)
+            if value == "normal":
+                cmd.value = 1
+            if value == "approaching_only":
+                cmd.value = 2
+            self.send_command_raw(cmd)
+
+        if key == "doppler_speed":
+            cmd = DopplerSpeedCmd(float(value) * 100)
+            self.send_command_raw(cmd)
+
+        if key == "antenna_height":
+            cmd = AntennaHeightCmd(float(value) * 1000)
+            self.send_command_raw(cmd)
+
+        if key == "lights":
+            cmd = EnumCmd(0xc131, lmh_map[value])
+            self.send_command_raw(cmd)
+
+    def state_updated(self):
+        # Implement state update logic
+        pass
+
+
+def scan():
+    return scan(get_local_addresses())
+
+def scan(addresses):
+    ret = []
+    for a in addresses:
+        print(f"local interface: {ip_address_to_string(a)}", file=sys.stderr)
+        listen_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        if listen_sock < 0:
+            print("socket error", file=sys.stderr)
+            continue
+
+        listen_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+        listen_sock.settimeout(1)
+
+        listen_address = ('', 6878)
+        try:
+            listen_sock.bind(listen_address)
+        except socket.error as e:
+            print(f"bind error: {e}", file=sys.stderr)
+            listen_sock.close()
+            continue
+
+        mreq = struct.pack("4sL", socket.inet_aton("236.6.7.5"), socket.INADDR_ANY)
+        listen_sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+
+        send_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        send_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+        send_address = (socket.inet_ntoa(struct.pack("!I", a)), 0)
+        try:
+            send_sock.bind(send_address)
+        except socket.error as e:
+            print(f"bind error: {e}", file=sys.stderr)
+            listen_sock.close()
+            send_sock.close()
+            continue
+
+        data = struct.pack("!H", 0xb101)
+        send_address = ("236.6.7.5", 6878)
+        try:
+            send_sock.sendto(data, send_address)
+        except socket.error as e:
+            print(f"sendto error: {e}", file=sys.stderr)
+            listen_sock.close()
+            send_sock.close()
+            continue
+
+        count = 0
+        while count < 3:
+            try:
+                in_data, from_addr = listen_sock.recvfrom(1024)
+                nbytes = len(in_data)
+                if nbytes > 0:
+                    print(f"{nbytes} bytes", file=sys.stderr)
+                    print(f"is it {RadarReport_b201.size} bytes and start with b201?", file=sys.stderr)
+                    if nbytes == RadarReport_b201.size and in_data[:2] == b'\xb2\x01':
+                        b201 = RadarReport_b201.from_buffer_copy(in_data)
+                        asa = AddressSet()
+                        asa.label = "HaloA"
+                        asa.data = b201.addrDataA
+                        asa.send = b201.addrSendA
+                        asa.report = b201.addrReportA
+                        asa.interface = a
+                        ret.append(asa)
+                        asb = AddressSet()
+                        asb.label = "HaloB"
+                        asb.data = b201.addrDataB
+                        asb.send = b201.addrSendB
+                        asb.report = b201.addrReportB
+                        asb.interface = a
+                        ret.append(asb)
+                        break
+            except socket.timeout:
+                pass
+            count += 1
+
+        listen_sock.close()
+        send_sock.close()
+        if ret:
+            break
+
+    return ret
+
+def get_local_addresses():
+    local_addresses = []
+    try:
+        for interface in socket.if_nameindex():
+            ifname = interface[1]
+            addr = socket.inet_ntoa(fcntl.ioctl(
+                socket.socket(socket.AF_INET, socket.SOCK_DGRAM),
+                0x8915,  # SIOCGIFADDR
+                struct.pack('256s', ifname[:15].encode())
+            )[20:24])
+            local_addresses.append(ip_address_from_string(addr))
+    except OSError:
+        pass
+    return local_addresses
+
+def ip_address_to_string(address):
+    return socket.inet_ntoa(struct.pack("!I", address))
+
+def ip_address_from_string(address_str):
+    return struct.unpack("!I", socket.inet_aton(address_str))[0]

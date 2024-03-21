@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "*.m": "matlab",
+        "*.svelte": "scss",
+        "vector": "cpp"
+    }
+}
