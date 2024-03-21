@@ -1,0 +1,1 @@
+This will be the library for a python package for interfacing with a simrad radar.
